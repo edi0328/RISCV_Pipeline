@@ -1,0 +1,7 @@
+work/
+
+db/
+output_files/
+*.qws
+
+*.bak
