@@ -25,6 +25,60 @@ entity hazard_unit is
 		if_id_flush : out std_logic;  -- Clear for IF/ID (clears fetched instr)
 		ex_mem_flush : out std_logic -- For mem flushes
 		
-		-- Feel free to add output ports for debugging below
 	);
 end hazard_unit;
+
+architecture rtl of hazard_unit is
+	signal ex_hazard   : std_logic;
+	signal mem_hazard  : std_logic;
+	signal data_hazard : std_logic;
+begin
+
+	-- Hazard with instruction currently in EX stage
+	ex_hazard <= '1' when
+		(ex_reg_write = '1') and
+		(ex_rd /= "00000") and
+		((id_rs1 = ex_rd) or (id_rs2 = ex_rd))
+	else
+		'0';
+
+	-- Hazard with instruction currently in MEM stage
+	mem_hazard <= '1' when
+		(mem_reg_write = '1') and
+		(mem_rd /= "00000") and
+		((id_rs1 = mem_rd) or (id_rs2 = mem_rd))
+	else
+		'0';
+
+	data_hazard <= ex_hazard or mem_hazard;
+
+	process(all)
+	begin
+		-- Default: normal pipeline operation
+		pc_write     <= '1';
+		if_id_write  <= '1';
+		id_ex_flush  <= '0';
+		if_id_flush  <= '0';
+		ex_mem_flush <= '0';
+
+		-- Stall pipeline if memory is waiting
+		if mem_waitrequest = '1' then
+			pc_write     <= '0';
+			if_id_write  <= '0';
+			id_ex_flush  <= '1';
+
+		-- Stall pipeline on data hazard
+		elsif data_hazard = '1' then
+			pc_write     <= '0';
+			if_id_write  <= '0';
+			id_ex_flush  <= '1';
+
+		-- Flush younger instructions on taken branch
+		elsif branch_taken = '1' then
+			if_id_flush  <= '1';
+			id_ex_flush  <= '1';
+			ex_mem_flush <= '1';
+		end if;
+	end process;
+
+end rtl;
