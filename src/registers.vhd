@@ -18,3 +18,26 @@ entity registers is
 		-- Feel free to add output ports for debugging below
 	);
 end registers;
+
+architecture behavioral of registers is
+	type reg_array is array(0 to 31) of std_logic_vector(31 downto 0);
+	signal regs : reg_array := (others => (others => '0'));
+begin
+	-- Write on falling edge
+	process(clk)
+	begin
+		if falling_edge(clk) then
+			if reg_write = '1' and addr_dest /= "00000" then
+				regs(to_integer(unsigned(addr_dest))) <= write_data;
+			end if;
+		end if;
+	end process;
+
+	-- Read combinatorially (effectively "on rising edge" since writes happen on falling edge)
+	read_data_a <= (others => '0') when addr_a = "00000" else
+	               regs(to_integer(unsigned(addr_a)));
+
+	read_data_b <= (others => '0') when addr_b = "00000" else
+	               regs(to_integer(unsigned(addr_b)));
+
+end behavioral;
