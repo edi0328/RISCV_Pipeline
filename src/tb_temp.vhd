@@ -7,9 +7,7 @@ end tb_temp;
 
 architecture behavioral of tb_temp is
 
-    -- =========================================================
     -- Component declarations
-    -- =========================================================
     component registers is
         port (
             clk         : in  std_logic;
@@ -43,9 +41,7 @@ architecture behavioral of tb_temp is
         );
     end component;
 
-    -- =========================================================
     -- Signals for registers
-    -- =========================================================
     signal clk         : std_logic := '0';
     signal reg_write   : std_logic := '0';
     signal addr_a      : std_logic_vector(4 downto 0) := (others => '0');
@@ -55,17 +51,13 @@ architecture behavioral of tb_temp is
     signal read_data_a : std_logic_vector(31 downto 0);
     signal read_data_b : std_logic_vector(31 downto 0);
 
-    -- =========================================================
     -- Signals for alu_ctrl
-    -- =========================================================
     signal funct3 : std_logic_vector(2 downto 0) := (others => '0');
     signal funct7 : std_logic_vector(6 downto 0) := (others => '0');
     signal ALUOp  : std_logic_vector(1 downto 0) := (others => '0');
     signal op     : std_logic_vector(3 downto 0);
 
-    -- =========================================================
     -- Signals for ALU
-    -- =========================================================
     signal alu_A      : std_logic_vector(31 downto 0) := (others => '0');
     signal alu_B      : std_logic_vector(31 downto 0) := (others => '0');
     signal alu_op     : std_logic_vector(3 downto 0)  := (others => '0');
@@ -77,9 +69,7 @@ architecture behavioral of tb_temp is
 
 begin
 
-    -- =========================================================
     -- Instantiations
-    -- =========================================================
     u_registers : registers port map (
         clk         => clk,
         reg_write   => reg_write,
@@ -109,9 +99,7 @@ begin
 
     clk <= not clk after CLK_PERIOD / 2;
 
-    -- =========================================================
     -- Test process
-    -- =========================================================
     process
         variable pass_count : integer := 0;
         variable fail_count : integer := 0;
@@ -167,9 +155,7 @@ begin
 
     begin
 
-        -- =================================================
         -- REGISTERS TESTS
-        -- =================================================
         report "--- Testing registers ---" severity note;
 
         -- x0 is hardwired to 0
@@ -205,9 +191,7 @@ begin
         addr_a <= "00001"; wait for 1 ns;
         check32(read_data_a, x"ABCD1234", "REG: no write when reg_write=0");
 
-        -- =================================================
         -- ALU_CTRL TESTS
-        -- =================================================
         report "--- Testing alu_ctrl ---" severity note;
 
         -- Load/Store: ALUOp=00 -> ADD (0000)
@@ -238,9 +222,7 @@ begin
         ALUOp <= "10"; funct7 <= "0000001";
         funct3 <= "000"; wait for 5 ns; check4(op, "1010", "CTRL: MUL");
 
-        -- =================================================
         -- ALU TESTS
-        -- =================================================
         report "--- Testing ALU ---" severity note;
 
         alu_A <= x"00000003"; alu_B <= x"00000005"; alu_op <= "0000"; wait for 5 ns;
@@ -304,7 +286,6 @@ begin
         check1(alu_zero, '0', "ALU: branch A>B zero=0");
         check1(alu_lt,   '0', "ALU: branch A>B lt=0");
 
-        -- =================================================
         report "--- DONE: " &
                integer'image(pass_count) & " passed, " &
                integer'image(fail_count) & " failed ---"
