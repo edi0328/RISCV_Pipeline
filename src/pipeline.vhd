@@ -19,6 +19,28 @@ signal i_out : std_logic_vector(31 downto 0);
 
 signal i_waitrequest, d_waitrequest, mem_waitrequest : std_logic;
 
+-- Mem stage signals
+-- Expected signals from EX
+signal WB_mem : std_logic_vector(1 downto 0); -- (1): RegWrite, (0): MemToReg
+signal M_mem : std_logic_vector(2 downto 0); -- (2):Branch, (1):MemRead, (0):MemWrite
+signal branch_addr : std_logic_vector(31 downto 0); -- Branch address
+signal res_memaddr : std_logic_vector(31 downto 0); -- ALU result
+signal func3_mem : std_logic_vector(2 downto 0); -- Func3 for conditional
+signal flags : std_logic_vector(1 downto 0); -- (1) lt, (0) eq
+signal rd_mem : std_logic_vector(4 downto 0); -- Instruction[11-7]
+
+
+-- Intermediate signals in Mem
+signal branch_taken : std_logic;
+signal write_data_mem : std_logic_vector(31 downto 0);
+signal d_memout : std_logic_vector(31 downto 0);
+
+-- WB stage signals
+signal WB_wb : std_logic_vector(1 downto 0); -- RegWrite and MemToReg
+signal mem_data_wb, alu_res_wb : std_logic_vector(31 downto 0); -- Data from load or R instructions
+signal rd_wb : std_logic_vector(4 downto 0); -- Destination register
+
+
 component memory
 	port(clock, memwrite, memread : in std_logic;
 			writedata: in std_logic_vector(31 downto 0);
@@ -52,9 +74,10 @@ begin
 									 waitrequest => i_waitrequest);
 									 
 	D_mem : memory port map (clock => clk,
-									 memwrite => d_memwrite,
-									 memread => d_memread,
-									 writedata => d_memaddr,
+									 memwrite => M_mem(0),
+									 memread => M_mem(1),
+									 writedata => write_data_mem, 
+									 address => to_integer(unsigned(res_memaddr)), 
 									 readdata => d_memout,
 									 waitrequest => d_waitrequest);
 	
@@ -81,4 +104,14 @@ begin
 			
 		end if;
 	end process;
+	
+	
+	-- Mem stage combinational
+	branch_taken <= '1' when (M_mem(2) = '1' and (
+                    (func3_mem = "000" and flags(0) = '1') or -- beq: branch if equal
+                    (func3_mem = "001" and flags(0) = '0') or -- bne: branch if NOT equal
+                    (func3_mem = "100" and flags(1) = '1') or -- blt: branch if less than
+                    (func3_mem = "101" and flags(1) = '0') -- bge: branch if NOT less than (greater or equal)
+                )) else '0';
+	
 end top;
