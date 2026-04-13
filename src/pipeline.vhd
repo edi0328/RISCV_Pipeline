@@ -82,6 +82,8 @@ begin
 									 waitrequest => d_waitrequest);
 	
 	pc4 <= pc + 4;
+	pc_sel <= branch_taken;
+	pc_branch <= to_integer(unsigned(branch_addr));
 	with pc_sel select
 		next_pc <= pc4 when '0',
 						pc_branch when others;
@@ -103,6 +105,13 @@ begin
 			end if;
 			
 		end if;
+		
+		
+		-- MEM stage
+		WB_wb <= WB_mem;
+		mem_data_wb <= d_memout;
+		alu_res_wb <= res_memaddr;
+		rd_wb <= rd_mem;
 	end process;
 	
 	
@@ -113,5 +122,13 @@ begin
                     (func3_mem = "100" and flags(1) = '1') or -- blt: branch if less than
                     (func3_mem = "101" and flags(1) = '0') -- bge: branch if NOT less than (greater or equal)
                 )) else '0';
+	
+	-- WB stage combinational
+	RegWrite <= WB_wb(1);
+	MemToReg <= WB_wb(0);
+	WriteRegister <= rd_wb;
+	with memToReg select
+		write_data <= mem_data_wb when '1',
+						  alu_res_wb when others;
 	
 end top;
