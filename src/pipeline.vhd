@@ -200,6 +200,7 @@ begin
 									 );
 
 	pipeline_ready <= i_waitrequest and d_waitrequest;
+	
 	pc4 <= pc + 4;
 	pc_sel <= branch_taken;
 	pc_branch <= to_integer(unsigned(branch_addr));
@@ -207,7 +208,7 @@ begin
 		next_pc <= pc4 when '0',
 						pc_branch when others;
 	
-	im_read <= 0;
+	im_read <= pc_write and pipeline_ready and not reset;
 	
 	process(clk, reset)	
 	begin
@@ -221,23 +222,17 @@ begin
 			-- PC changes on fetch or branch, when hazard_unit allows
 			if pc_write = '1' then
 				pc <= next_pc;
-				-- activate memread for 1 cycle
-				im_read <= 1;
-			else
-				-- resets memread to 0
-				im_read <= 0;
 			end if;
 			
 			-- IF/ID registers logic
 			-- no stall
 			if if_id_write = '1' then
+				if_id_in <= i_out;
 				-- branch
 				if if_id_flush = '1' then
 					if_id_in <= 0x0;
-				-- wait for i_waitrequest to become  1
-				elif i_waitrequest = 1 AND d_waitrequest = 1 then
+				else
 					if_id_in <= i_out;
-				end if;
 			end if;
 
 			-- stall: do nothing
@@ -351,15 +346,17 @@ begin
 			-- send branch address to next stage
 			pc_ex_mem_in <= branch_add;
 			
+			------------------------------------------------------------------------
+													--MEM stage
+			------------------------------------------------------------------------
+			
+			res_memaddr <= ex_mem_in(68 downto 37)
+			WB_wb <= WB_mem;
+			mem_data_wb <= d_memout;
+			alu_res_wb <= res_memaddr;
+			rd_wb <= rd_mem;
+			
 		end if;
-		
-		
-		-- MEM stage
-		res_memaddr <= ex_mem_in(68 downto 37)
-		WB_wb <= WB_mem;
-		mem_data_wb <= d_memout;
-		alu_res_wb <= res_memaddr;
-		rd_wb <= rd_mem;
 	end process;
 	
 	
