@@ -199,7 +199,7 @@ begin
 									 lt => ex_mem_in(70),
 									 );
 
-	
+	pipeline_ready <= i_waitrequest and d_waitrequest;
 	pc4 <= pc + 4;
 	pc_sel <= branch_taken;
 	pc_branch <= to_integer(unsigned(branch_addr));
@@ -213,7 +213,7 @@ begin
 	begin
 		if reset = '1' then
 			pc <= 0;
-		elsif rising_edge(clk) then
+		elsif rising_edge(clk) and pipeline_ready then
 			----------
 			---------------------------------------------------------------------------------------
 			---------------------------------------- FETCH ----------------------------------------
