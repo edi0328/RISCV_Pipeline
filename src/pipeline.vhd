@@ -41,6 +41,7 @@ signal mem_data_wb, alu_res_wb : std_logic_vector(31 downto 0); -- Data from loa
 signal rd_wb : std_logic_vector(4 downto 0); -- Destination register
 
 -- IF/ID signals
+signal im_read : std_logic;
 signal if_id_in, if_id_out : std_logic_vector(31 downto 0);
 signal pc_if_id_in, pc_if_id_out : integer;
 signal if_id_write : std_logic;
@@ -137,9 +138,10 @@ end component;
 begin
 	I_mem : memory port map (clock => clk, 
 									 memwrite => '0', -- read only
-									 memread => '1',
+									 memread => im_read,
 									 writedata => (others => '0'),
 									 address => pc,
+
 									 readdata => i_out,
 									 waitrequest => i_waitrequest);
 									 
@@ -147,7 +149,8 @@ begin
 									 memwrite => M_mem(0),
 									 memread => M_mem(1),
 									 writedata => write_data_mem, 
-									 address => to_integer(unsigned(res_memaddr)), 
+									 address => to_integer(unsigned(res_memaddr)),
+
 									 readdata => d_memout,
 									 waitrequest => d_waitrequest);
 
@@ -158,7 +161,7 @@ begin
 									 ex_reg_write => wb_id_ex_out(1),
 									 mem_rd => ex_mem_out(4 downto 0),
 									 mem_reg_write => wb_ex_mem_out(1),
-									 mem_waitrequest => d_waitrequest,
+									 mem_waitrequest => d_waitrequest OR i_waitrequest,,
 									 branch_taken => branch_taken,
 
 									 pc_write => pc_write,
@@ -204,6 +207,7 @@ begin
 		next_pc <= pc4 when '0',
 						pc_branch when others;
 	
+	im_read <= 0;
 	
 	process(clk, reset)	
 	begin
@@ -217,6 +221,11 @@ begin
 			-- PC changes on fetch or branch, when hazard_unit allows
 			if pc_write = '1' then
 				pc <= next_pc;
+				-- activate memread for 1 cycle
+				im_read <= 1;
+			else
+				-- resets memread to 0
+				im_read <= 0;
 			end if;
 			
 			-- IF/ID registers logic
@@ -225,8 +234,8 @@ begin
 				-- branch
 				if if_id_flush = '1' then
 					if_id_in <= 0x0;
-				else
-				-- store instruction for next stage
+				-- wait for i_waitrequest to become  1
+				elif i_waitrequest = 1 AND d_waitrequest = 1 then
 					if_id_in <= i_out;
 				end if;
 			end if;
