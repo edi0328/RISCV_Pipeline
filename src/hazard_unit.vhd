@@ -61,7 +61,7 @@ begin
 		'0';
 	data_hazard <= ex_hazard or mem_hazard or wb_hazard;
 
-	process(id_rs1, id_rs2, ex_rd, ex_reg_write, mem_rd, mem_reg_write, mem_waitrequest, branch_taken, ex_hazard, mem_hazard, data_hazard)
+	process(id_rs1, id_rs2, ex_rd, ex_reg_write, mem_rd, mem_reg_write, mem_waitrequest, branch_taken, ex_hazard, mem_hazard, data_hazard, wb_rd, wb_reg_write)
 	begin
 		-- Default: normal pipeline operation
 		pc_write     <= '1';
@@ -71,7 +71,11 @@ begin
 		ex_mem_flush <= '0';
 
 		-- Stall pipeline if memory is waiting
-		if mem_waitrequest = '1' then
+		if branch_taken = '1' then
+			if_id_flush  <= '1';
+			id_ex_flush  <= '1';
+			ex_mem_flush <= '1';
+		elsif mem_waitrequest = '1' then
 			pc_write     <= '0';
 			if_id_write  <= '0';
 			id_ex_flush  <= '1';
@@ -83,10 +87,6 @@ begin
 			id_ex_flush  <= '1';
 
 		-- Flush younger instructions on taken branch
-		elsif branch_taken = '1' then
-			if_id_flush  <= '1';
-			id_ex_flush  <= '1';
-			ex_mem_flush <= '1';
 		end if;
 	end process;
 
