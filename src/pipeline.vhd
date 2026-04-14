@@ -43,8 +43,11 @@ signal rd_wb : std_logic_vector(4 downto 0); -- Destination register
 -- IF/ID signals
 signal if_id_in, if_id_out : std_logic_vector(31 downto 0);
 signal pc_if_id_in, pc_if_id_out : integer;
+signal if_id_write : std_logic;
+signal if_id_flush : std_logic;
 
 -- HAZARD signals
+signal pc_write : std_logic;
 
 -- REGISTERS signals
 
@@ -153,13 +156,13 @@ begin
 									 ex_reg_write => ,
 									 mem_rd => ,
 									 mem_reg_write => ,
-									 mem_waitrequest => ,
+									 mem_waitrequest => d_waitrequest,
 									 branch_taken => ,
-									 
-									 pc_write => ,
-									 if_id_write => ,
+
+									 pc_write => pc_write,
+									 if_id_write => if_id_write,
 									 id_ex_flush => ,
-									 if_id_flush => ,
+									 if_id_flush => if_id_flush,
 									 ex_mem_flush => ,
 									 );
 
