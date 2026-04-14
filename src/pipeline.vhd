@@ -387,6 +387,13 @@ begin
 			---------------------------------------------------------------------------------------
 			---------------------------------------- EXECUTE ----------------------------------------
 			---------------------------------------------------------------------------------------
+			
+			-- Mem stage to WB moved up for correct flushing of EX instructions for JAL
+			WB_wb <= WB_mem; -- WriteBack register
+			mem_data_wb <= d_memout;
+			alu_res_wb <= ex_mem_out(68 downto 37); --Fed also to D-mem in port map
+			rd_wb <= ex_mem_out(4 downto 0); --
+			
 			if (ex_mem_flush = '1') then
 				ex_mem_out <= (others => '0');
 				M_mem <= (others => '0');
@@ -414,14 +421,6 @@ begin
 				end if;
 			
 				
-				------------------------------------------------------------------------
-														--MEM stage to WB
-				------------------------------------------------------------------------
-				
-				WB_wb <= WB_mem; -- WriteBack register
-				mem_data_wb <= d_memout;
-				alu_res_wb <= ex_mem_out(68 downto 37); --Fed also to D-mem in port map
-				rd_wb <= ex_mem_out(4 downto 0); --
 			end if;
 		end if;
 	end process;
