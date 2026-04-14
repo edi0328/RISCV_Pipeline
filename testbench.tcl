@@ -10,7 +10,7 @@ vcom sim/tb_pipeline.vhd
 # Load the simulation
 vsim work.tb_pipeline
 
-mem load -fillbin -file sim/program.txt /tb_pipeline/dut/I_mem/ram_block
+mem load -fillbin -file sim/program.txt -format binary /tb_pipeline/dut/I_mem/ram_block
 
 run 10000 ns
 

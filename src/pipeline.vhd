@@ -59,7 +59,7 @@ signal pc_write : std_logic;
 -- REGISTERS signals
 
 -- ID/EX signals
-signal id_ex_out : std_logic_vector(104 downto 0);
+signal id_ex_out : std_logic_vector(111 downto 0);
 signal pc_id_ex_out : integer;
 signal ex_id_ex_out : std_logic_vector(2 downto 0);
 signal m_id_ex_out : std_logic_vector(2 downto 0);
@@ -77,7 +77,7 @@ signal read_data_a, read_data_b : std_logic_vector(31 downto 0);
 
 signal alu_res : std_logic_vector(31 downto 0);
 signal alu_zero, alu_lt : std_logic;
-
+signal alu_a : std_logic_vector(31 downto 0);
 
 component memory
 	port(clock, memwrite, memread : in std_logic;
@@ -197,7 +197,7 @@ begin
 									 op => operation
 									 );
 
-	alu_unit : alu port map (A => id_ex_out(104 downto 73),
+	alu_unit : alu port map (A => alu_a,
 									 B => B,
 									 op => operation,
 
@@ -248,7 +248,7 @@ begin
 					pc_if_id_out <= 0;
 				else -- normal assignment
 					if_id_out <= i_out;
-					pc_if_id_out <= pc; -- TO CHECK IF NEEDS OFFSET OR +4
+					pc_if_id_out <= pc; -- CHECK IF NEEDS OFFSET OR +4, LIKELY OK
 				end if;
 			end if;
 
@@ -262,136 +262,168 @@ begin
 			-- rs2[20 to 24], rs1[15 to 19], funct3[12 to 14], funct7[25 to 31]
 			-- opcode[0 to 6] for branch, load, store, or operation
 
-			
-			-- immediate value logic (40 downto 9)
-			if if_id_out(6 downto 0) = "0110011" then -- R-type
-				id_ex_out(40 downto 9) <= (others => '0'); -- no immediate for R-type
-				id_ex_out(72 downto 41) <= read_data_b;
-				id_ex_out(104 downto 73) <= read_data_a;
-				
-			elsif if_id_out(6 downto 0) = "0010011" or if_id_out(6 downto 0) = "0000011" -- Immediate or load
-			or if_id_out(6 downto 0) = "1100111" or if_id_out(6 downto 0) = "1110011" then -- I-type
-				id_ex_out(40 downto 9) <= (19 downto 0 => if_id_out(31)) & if_id_out(31 downto 20); -- Sign extend immediate
-				id_ex_out(72 downto 41) <= read_data_b; -- Will be replaced by immediate
-				id_ex_out(104 downto 73) <= read_data_a;
-				
-			
-			elsif if_id_out(6 downto 0) = "0100011" then -- S-type
-				id_ex_out(40 downto 9) <= (19 downto 0 => if_id_out(31)) & if_id_out(31 downto 25) & if_id_out(11 downto 7);
-				id_ex_out(72 downto 41) <= read_data_b;
-				id_ex_out(104 downto 73) <= read_data_a;
-			
-			elsif if_id_out(6 downto 0) = "1100011" then -- B-type
-				id_ex_out(40 downto 9) <= (18 downto 0 => if_id_out(31)) & if_id_out(31) & if_id_out(7) & if_id_out(30 downto 25) & if_id_out(11 downto 8) & "0";
-				id_ex_out(72 downto 41) <= read_data_b;
-				id_ex_out(104 downto 73) <= read_data_a;
-			
-			elsif if_id_out(6 downto 0) = "0110111" or if_id_out(6 downto 0) = "0010111" then -- U-type
-				id_ex_out(40 downto 9) <= if_id_out(31 downto 12) & (11 downto 0 => '0');
-				
-			elsif if_id_out(6 downto 0) = "1101111" then -- J-type
-				id_ex_out(40 downto 9) <= (10 downto 0 => if_id_out(31)) & if_id_out(31) & if_id_out(19 downto 12) & if_id_out(20) & if_id_out(30 downto 21) & "0";
-
-			end if;
-
-
-			-- ALU control 8-5 is funct3, 30 for funct7 bit
-			id_ex_out(8 downto 5) <= if_id_out(30) & if_id_out(14 downto 12);
-
-
-			-- writeback register 4 downto 0
-			id_ex_out(4 downto 0) <= if_id_out(11 downto 7);
-
-
-			-- control module
-			-- if not R-type select imm
-			if if_id_out(6 downto 0) /= "0110011" then
-				ex_id_ex_out(0) <= '1'; --ALUSrc
-			else
-				ex_id_ex_out(0) <= '0'; -- Use read_data_2 if is R-type
-			end if;
-
-			case if_id_out(6 downto 0) is
-				when "0000011" => -- load
-					ex_id_ex_out(2 downto 1) <= "00";
-					m_id_ex_out <= "010"; -- branch & read & write
-					wb_id_ex_out <= "11"; -- regwrite & memtoreg
-				
-				when "0100011" => -- store
-					ex_id_ex_out(2 downto 1) <= "00";
-					m_id_ex_out <= "001";
-					wb_id_ex_out <= "00";
-				
-				when "1100011" => -- branch
-					ex_id_ex_out(2 downto 1) <= "01";
-					m_id_ex_out <= "100";
-					wb_id_ex_out <= "00";
-
-				when "0010011" | "1100111" | "1110011" => -- R and I style instructions
-					ex_id_ex_out(2 downto 1) <= "10";
-					m_id_ex_out <= "000";
-					wb_id_ex_out <= "10";
-
-				when others =>
-					ex_id_ex_out(2 downto 1) <= "11";
-					m_id_ex_out <= "000";
-					wb_id_ex_out <= "00";
-			end case;
-
-			pc_id_ex_out <= pc_if_id_out;
-
 			if id_ex_flush = '1' then
 				id_ex_out <= (others => '0');
+				pc_id_ex_out <= 0;
+			else
+				-- immediate value logic (40 downto 9)
+				if if_id_out(6 downto 0) = "0110011" then -- R-type
+					id_ex_out(40 downto 9) <= (others => '0'); -- no immediate for R-type
+					id_ex_out(72 downto 41) <= read_data_b;
+					id_ex_out(104 downto 73) <= read_data_a;
+					
+				elsif if_id_out(6 downto 0) = "0010011" or if_id_out(6 downto 0) = "0000011" -- Immediate or load
+				or if_id_out(6 downto 0) = "1100111" or if_id_out(6 downto 0) = "1110011" then -- I-type
+					id_ex_out(40 downto 9) <= (19 downto 0 => if_id_out(31)) & if_id_out(31 downto 20); -- Sign extend immediate
+					id_ex_out(72 downto 41) <= read_data_b; -- Will be replaced by immediate
+					id_ex_out(104 downto 73) <= read_data_a;
+					
+				
+				elsif if_id_out(6 downto 0) = "0100011" then -- S-type
+					id_ex_out(40 downto 9) <= (19 downto 0 => if_id_out(31)) & if_id_out(31 downto 25) & if_id_out(11 downto 7);
+					id_ex_out(72 downto 41) <= read_data_b;
+					id_ex_out(104 downto 73) <= read_data_a;
+				
+				elsif if_id_out(6 downto 0) = "1100011" then -- B-type
+					id_ex_out(40 downto 9) <= (18 downto 0 => if_id_out(31)) & if_id_out(31) & if_id_out(7) & if_id_out(30 downto 25) & if_id_out(11 downto 8) & "0";
+					id_ex_out(72 downto 41) <= read_data_b;
+					id_ex_out(104 downto 73) <= read_data_a;
+				
+				elsif if_id_out(6 downto 0) = "0110111" or if_id_out(6 downto 0) = "0010111" then -- U-type
+					id_ex_out(40 downto 9) <= if_id_out(31 downto 12) & (11 downto 0 => '0');
+					
+				elsif if_id_out(6 downto 0) = "1101111" then -- J-type
+					id_ex_out(40 downto 9) <= (10 downto 0 => if_id_out(31)) & if_id_out(31) & if_id_out(19 downto 12) & if_id_out(20) & if_id_out(30 downto 21) & "0";
+
+				end if;
+
+
+				-- ALU control 8-5 is funct3, 30 for funct7 bit
+				id_ex_out(8 downto 5) <= if_id_out(30) & if_id_out(14 downto 12);
+
+
+				-- writeback register 4 downto 0
+				id_ex_out(4 downto 0) <= if_id_out(11 downto 7);
+
+				id_ex_out(111 downto 105) <= if_id_out(6 downto 0); -- Pass the opcode to EX for AUIPC
+
+				-- control module
+				-- if not R-type select imm
+				if if_id_out(6 downto 0) /= "0110011" then
+					ex_id_ex_out(0) <= '1'; --ALUSrc
+				else
+					ex_id_ex_out(0) <= '0'; -- Use read_data_2 if is R-type
+				end if;
+
+				case if_id_out(6 downto 0) is
+					when "0000011" => -- load
+						ex_id_ex_out(2 downto 1) <= "00";
+						m_id_ex_out <= "010"; -- branch & read & write
+						wb_id_ex_out <= "11"; -- regwrite & memtoreg
+					
+					when "0100011" => -- store
+						ex_id_ex_out(2 downto 1) <= "00";
+						m_id_ex_out <= "001";
+						wb_id_ex_out <= "00";
+					
+					when "1100011" => -- branch
+						ex_id_ex_out(2 downto 1) <= "01";
+						m_id_ex_out <= "100";
+						wb_id_ex_out <= "00";
+
+					when "0010011" | "1110011" | "0110011" => -- R and I style instructions, except JALR
+						ex_id_ex_out(2 downto 1) <= "10";
+						m_id_ex_out <= "000";
+						wb_id_ex_out <= "10";
+
+					when "1101111" => -- JAL
+						ex_id_ex_out(2 downto 1) <= "11"; 
+						m_id_ex_out <= "100"; -- Branch = 1
+						wb_id_ex_out <= "10"; -- RegWrite = 1 (to save PC+4)
+
+					when "1100111" => -- JALR
+						ex_id_ex_out(2 downto 1) <= "00"; -- ALU does rs1 + imm
+						m_id_ex_out <= "100"; -- Branch = 1
+						wb_id_ex_out <= "10";
+						
+					when "0110111" | "0010111" => -- LUI and AUIPC
+						ex_id_ex_out(2 downto 1) <= "11"; -- Special ALU op to pass imm
+						m_id_ex_out <= "000";
+						wb_id_ex_out <= "10";
+									
+					when others =>
+						ex_id_ex_out(2 downto 1) <= "11";
+						m_id_ex_out <= "000";
+						wb_id_ex_out <= "00";
+				end case;
+
+				pc_id_ex_out <= pc_if_id_out;
+				
 			end if;
 			
 			---------------------------------------------------------------------------------------
 			---------------------------------------- EXECUTE ----------------------------------------
 			---------------------------------------------------------------------------------------
-			-- pass signals to next stage
-			ex_mem_out(4 downto 0) <= id_ex_out(4 downto 0);
-			ex_mem_out(36 downto 5) <= id_ex_out(72 downto 41);
-
-			M_mem <= m_id_ex_out;
-			WB_mem <= wb_id_ex_out; -- wb_ex_mem_out
-			
-			-- Connect port map wires
-			ex_mem_out(68 downto 37) <= alu_res;
-			ex_mem_out(69) <= alu_zero;
-			ex_mem_out(70) <= alu_lt;
-			
-			-- calculate branch address (TO BE VERIFIED AGAIN)
-			branch_addr <= std_logic_vector(
-    				to_signed(pc_id_ex_out, 32) + signed(id_ex_out(40 downto 9)) -- Signed to go either direction
-			);
-		
-			
 			if (ex_mem_flush = '1') then
 				ex_mem_out <= (others => '0');
+				M_mem <= (others => '0');
+				WB_mem <= (others => '0');
+			else
+				
+				-- pass signals to next stage
+				ex_mem_out(4 downto 0) <= id_ex_out(4 downto 0);
+				ex_mem_out(36 downto 5) <= id_ex_out(72 downto 41);
+
+				M_mem <= m_id_ex_out;
+				WB_mem <= wb_id_ex_out; -- wb_ex_mem_out
+				
+				-- Connect port map wires
+				ex_mem_out(68 downto 37) <= alu_res;
+				ex_mem_out(69) <= alu_zero;
+				ex_mem_out(70) <= alu_lt;
+				
+				-- calculate branch address (TO BE VERIFIED AGAIN)
+				if id_ex_out(111 downto 105) = "1100111" then -- JALR
+					branch_addr <= std_logic_vector(signed(id_ex_out(104 downto 73)) + signed(id_ex_out(40 downto 9))); -- rs1 + imm
+				else -- Branch or JAL
+					branch_addr <= std_logic_vector(to_signed(pc_id_ex_out, 32) + signed(id_ex_out(40 downto 9))); -- PC + imm
+				end if;
+			
+				
+				------------------------------------------------------------------------
+														--MEM stage to WB
+				------------------------------------------------------------------------
+				
+				WB_wb <= WB_mem; -- WriteBack register
+				mem_data_wb <= d_memout;
+				alu_res_wb <= ex_mem_out(68 downto 37); --Fed also to D-mem in port map
+				rd_wb <= ex_mem_out(4 downto 0); --
 			end if;
-			------------------------------------------------------------------------
-													--MEM stage to WB
-			------------------------------------------------------------------------
-			
-			WB_wb <= WB_mem; -- WriteBack register
-			mem_data_wb <= d_memout;
-			alu_res_wb <= ex_mem_out(68 downto 37); --Fed also to D-mem in port map
-			rd_wb <= ex_mem_out(4 downto 0); --
-			
 		end if;
 	end process;
 	
 	-- EX stage combinational
-	B <= id_ex_out(40 downto 9) when ex_id_ex_out(0) = '1' else id_ex_out(72 downto 41); -- imm or register value
+	B <= std_logic_vector(to_unsigned(4, 32)) when id_ex_out(111 downto 105) = "1101111" or id_ex_out(111 downto 105) = "1100111" else --JALR, JAL
+																	id_ex_out(40 downto 9) when ex_id_ex_out(0) = '1' else
+																	id_ex_out(72 downto 41); -- imm or register value
 	func3_mem <= id_ex_out(7 downto 5); -- Needed to branch conditionals
 	flags(0) <= ex_mem_out(69); --zero
 	flags(1) <= ex_mem_out(70); --lt
 	
+	alu_a <= (others => '0') when id_ex_out(111 downto 105) = "0110111" else -- LUI
+            std_logic_vector(to_signed(pc_id_ex_out, 32)) when id_ex_out(111 downto 105) = "0010111" 
+				or id_ex_out(111 downto 105) = "1101111"
+				or id_ex_out(111 downto 105) = "1100111" else -- AUIPC, JAL, JALR
+            id_ex_out(104 downto 73); -- Default: read_data_a
+				
 	-- Mem stage combinational
 	branch_taken <= '1' when (M_mem(2) = '1' and (
                     (func3_mem = "000" and flags(0) = '1') or -- beq: branch if equal
                     (func3_mem = "001" and flags(0) = '0') or -- bne: branch if NOT equal
                     (func3_mem = "100" and flags(1) = '1') or -- blt: branch if less than
-                    (func3_mem = "101" and flags(1) = '0') -- bge: branch if NOT less than (greater or equal)
+                    (func3_mem = "101" and flags(1) = '0') or -- bge: branch if NOT less than (greater or equal)
+						  id_ex_out(111 downto 105) = "1101111" or -- JAL: Always take
+                    id_ex_out(111 downto 105) = "1100111" -- JALR: Always take
                 )) else '0';
 	
 	-- WB stage combinational
