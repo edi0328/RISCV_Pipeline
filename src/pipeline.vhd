@@ -152,12 +152,12 @@ begin
 									 waitrequest => d_waitrequest);
 
 	hazard : hazard_unit port map (clk => clk,
-									 id_rs1 => if_id_out(24 downto 20),
-									 id_rs2 => if_id_out(19 downto 15),
-									 ex_rd => if_id_out(11 downto 7),
-									 ex_reg_write => ,
-									 mem_rd => ,
-									 mem_reg_write => ,
+									 id_rs2 => if_id_out(24 downto 20),
+									 id_rs1 => if_id_out(19 downto 15),
+									 ex_rd => if_ex_out(4 downto 0),
+									 ex_reg_write => wb_id_ex_out(1),
+									 mem_rd => ex_mem_out(4 downto 0),
+									 mem_reg_write => wb_ex_mem_out(1),
 									 mem_waitrequest => d_waitrequest,
 									 branch_taken => branch_taken,
 
@@ -165,7 +165,7 @@ begin
 									 if_id_write => if_id_write,
 									 id_ex_flush => id_ex_flush,
 									 if_id_flush => if_id_flush,
-									 ex_mem_flush => ex_mem_flush,
+									 ex_mem_flush => ex_mem_flush
 									 );
 
 	rgs : registers port map (clk => clk,
