@@ -45,6 +45,8 @@ signal if_id_in, if_id_out : std_logic_vector(31 downto 0);
 signal pc_if_id_in, pc_if_id_out : integer;
 signal if_id_write : std_logic;
 signal if_id_flush : std_logic;
+signal id_ex_flush : std_logic;
+signal ex_mem_flush : std_logic;
 
 -- HAZARD signals
 signal pc_write : std_logic;
@@ -157,13 +159,13 @@ begin
 									 mem_rd => ,
 									 mem_reg_write => ,
 									 mem_waitrequest => d_waitrequest,
-									 branch_taken => ,
+									 branch_taken => branch_taken,
 
 									 pc_write => pc_write,
 									 if_id_write => if_id_write,
-									 id_ex_flush => ,
+									 id_ex_flush => id_ex_flush,
 									 if_id_flush => if_id_flush,
-									 ex_mem_flush => ,
+									 ex_mem_flush => ex_mem_flush,
 									 );
 
 	rgs : registers port map (clk => clk,
@@ -188,10 +190,10 @@ begin
 									 B: B;
 									 op => operation,
 
-									 result : ex_mem_in(68 downto 37);
+									 result => ex_mem_in(68 downto 37);
 									 -- Branching only has beq, bne, blt, bge
-									 zero : ex_mem_in(69),
-									 lt : ex_mem_in(70),
+									 zero => ex_mem_in(69),
+									 lt => ex_mem_in(70),
 									 );
 
 	
@@ -306,6 +308,10 @@ begin
 			end case;
 
 			pc_id_ex_in <= pc_if_id_out
+
+			if id_ex_flush = '1' then
+				id_ex_in <= 0x0;
+			end if;
 			
 			---------------------------------------------------------------------------------------
 			---------------------------------------- EXECUTE ----------------------------------------
@@ -317,7 +323,7 @@ begin
 			ex_mem_in(36 downto 5) <= m_id_ex_out(40 downto 9)
 
 			m_ex_mem_in <= m_id_ex_out;
-			wb_ex_mem_in <= wb_id_ex_out
+			WB_mem <= wb_id_ex_out
 
 			-- alu second input
 			ex_id_ex_out <= ex_id_ex_in;
@@ -340,6 +346,7 @@ begin
 		
 		
 		-- MEM stage
+		res_memaddr <= ex_mem_in(68 downto 37)
 		WB_wb <= WB_mem;
 		mem_data_wb <= d_memout;
 		alu_res_wb <= res_memaddr;
