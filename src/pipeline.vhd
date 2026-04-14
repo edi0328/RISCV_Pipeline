@@ -13,7 +13,7 @@ end pipeline;
 architecture top of pipeline is
 
 constant ram_size : integer := 32768;
-signal pc, pc_branch, pc4, next_pc : integer range 0 to ram_size - 1;
+signal pc, pc_branch, pc4, next_pc, d_address: integer range 0 to ram_size - 1;
 signal pc_sel : std_logic;
 signal i_out : std_logic_vector(31 downto 0); --output from Instruction Memory
 
@@ -55,6 +55,7 @@ signal ex_mem_flush : std_logic;
 
 -- HAZARD signals
 signal pc_write : std_logic;
+signal mem_waitrequest_s : std_logic;
 
 -- REGISTERS signals
 
@@ -64,6 +65,7 @@ signal pc_id_ex_out : integer;
 signal ex_id_ex_out : std_logic_vector(2 downto 0);
 signal m_id_ex_out : std_logic_vector(2 downto 0);
 signal wb_id_ex_out : std_logic_vector(1 downto 0);
+signal funct7_id_ex_out : std_logic_vector(6 downto 0);
 
 -- EX/MEM signals
 signal ex_mem_out : std_logic_vector(70 downto 0);
@@ -158,7 +160,7 @@ begin
 									 memwrite => M_mem(0),
 									 memread => M_mem(1),
 									 writedata => write_data_mem, 
-									 address => to_integer(unsigned(ex_mem_out(68 downto 37))),
+									 address => d_address,
 
 									 readdata => d_memout,
 									 waitrequest => d_waitrequest);
@@ -168,8 +170,8 @@ begin
 									 ex_rd => id_ex_out(4 downto 0),
 									 ex_reg_write => wb_id_ex_out(1),
 									 mem_rd => ex_mem_out(4 downto 0),
-									 mem_reg_write => wb_ex_mem_out(1),
-									 mem_waitrequest => d_waitrequest OR i_waitrequest,
+									 mem_reg_write => WB_mem(1),
+									 mem_waitrequest => mem_waitrequest_s,
 									 branch_taken => branch_taken,
 
 									 pc_write => pc_write,
@@ -191,7 +193,7 @@ begin
 
 	alu_ctrl_unit : alu_ctrl port map (-- To differentiate R instructions
 									 funct3 => id_ex_out(7 downto 5),
-									 funct7 => "0" & id_ex_out(8) & "00000",
+									 funct7 => funct7_id_ex_out,
 									 ALUOp => ex_id_ex_out(2 downto 1),
 
 									 op => operation
@@ -208,7 +210,7 @@ begin
 									 );
 
 	pipeline_ready <= not (i_waitrequest or d_waitrequest); -- 0 means done, 
-	
+	mem_waitrequest_s <= i_waitrequest or d_waitrequest;
 	-- PC combinational logic
 	pc4 <= pc + 4;
 	pc_sel <= branch_taken;
@@ -357,6 +359,7 @@ begin
 						wb_id_ex_out <= "00";
 				end case;
 
+				funct7_id_ex_out <= if_id_out(31 downto 25);
 				pc_id_ex_out <= pc_if_id_out;
 				
 			end if;
@@ -425,7 +428,7 @@ begin
 						  id_ex_out(111 downto 105) = "1101111" or -- JAL: Always take
                     id_ex_out(111 downto 105) = "1100111" -- JALR: Always take
                 )) else '0';
-	
+	d_address <= to_integer(unsigned(ex_mem_out(68 downto 37)));
 	-- WB stage combinational
 	RegWrite <= WB_wb(1);
 	MemToReg <= WB_wb(0);
