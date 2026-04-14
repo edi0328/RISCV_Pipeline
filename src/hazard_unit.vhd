@@ -52,7 +52,7 @@ begin
 
 	data_hazard <= ex_hazard or mem_hazard;
 
-	process(all)
+	process(id_rs1, id_rs2, ex_rd, ex_reg_write, mem_rd, mem_reg_write, mem_waitrequest, branch_taken)
 	begin
 		-- Default: normal pipeline operation
 		pc_write     <= '1';

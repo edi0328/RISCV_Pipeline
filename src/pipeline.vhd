@@ -5,7 +5,7 @@ use ieee.numeric_std.all;
 entity pipeline is
 	port (
 		clk : in std_logic;
-		reset : in std_logic;
+		reset : in std_logic
 		-- Feel free to add output ports for debugging below
     );
 end pipeline;
@@ -15,9 +15,9 @@ architecture top of pipeline is
 constant ram_size : integer := 32768;
 signal pc, pc_branch, pc4, next_pc : integer range 0 to ram_size - 1;
 signal pc_sel : std_logic;
-signal i_out : std_logic_vector(31 downto 0);
+signal i_out : std_logic_vector(31 downto 0); --output from Instruction Memory
 
-signal i_waitrequest, d_waitrequest, mem_waitrequest : std_logic;
+signal i_waitrequest, d_waitrequest, pipeline_ready : std_logic;
 
 -- Mem stage signals
 -- Expected signals from EX
@@ -28,13 +28,14 @@ signal res_memaddr : std_logic_vector(31 downto 0); -- ALU result
 signal func3_mem : std_logic_vector(2 downto 0); -- Func3 for conditional
 signal flags : std_logic_vector(1 downto 0); -- (1) lt, (0) eq
 signal rd_mem : std_logic_vector(4 downto 0); -- Instruction[11-7]
-signal RegWrite      : std_logic;
-signal MemToReg      : std_logic;
-signal WriteRegister : std_logic_vector(4 downto 0);
-signal write_data    : std_logic_vector(31 downto 0);
+
+signal RegWrite      : std_logic; -- To write or not
+signal MemToReg      : std_logic; -- Choose WB using mem if 1, else ALU result
+signal WriteRegister : std_logic_vector(4 downto 0); -- Which register to write
+signal write_data    : std_logic_vector(31 downto 0); -- What to write to registers
 
 -- Intermediate signals in Mem
-signal branch_taken : std_logic;
+signal branch_taken : std_logic; -- 1 if branch
 signal write_data_mem : std_logic_vector(31 downto 0);
 signal d_memout : std_logic_vector(31 downto 0);
 
@@ -45,8 +46,8 @@ signal rd_wb : std_logic_vector(4 downto 0); -- Destination register
 
 -- IF/ID signals
 signal im_read : std_logic := '0';
-signal if_id_in, if_id_out : std_logic_vector(31 downto 0);
-signal pc_if_id_in, pc_if_id_out : integer;
+signal if_id_out : std_logic_vector(31 downto 0);
+signal pc_if_id_out : integer;
 signal if_id_write : std_logic;
 signal if_id_flush : std_logic;
 signal id_ex_flush : std_logic;
@@ -58,20 +59,25 @@ signal pc_write : std_logic;
 -- REGISTERS signals
 
 -- ID/EX signals
-signal id_ex_in, id_ex_out : std_logic_vector(104 downto 0);
-signal pc_id_ex_in, pc_id_ex_out : integer;
-signal ex_id_ex_in, ex_id_ex_out : std_logic_vector(2 downto 0);
-signal m_id_ex_in, m_id_ex_out : std_logic_vector(2 downto 0);
-signal wb_id_ex_in, wb_id_ex_out : std_logic_vector(1 downto 0);
+signal id_ex_out : std_logic_vector(104 downto 0);
+signal pc_id_ex_out : integer;
+signal ex_id_ex_out : std_logic_vector(2 downto 0);
+signal m_id_ex_out : std_logic_vector(2 downto 0);
+signal wb_id_ex_out : std_logic_vector(1 downto 0);
 
 -- EX/MEM signals
-signal ex_mem_in, ex_mem_out : std_logic_vector(70 downto 0);
-signal m_ex_mem_in, m_ex_mem_out : std_logic_vector(2 downto 0);
-signal wb_ex_mem_in, wb_ex_mem_out : std_logic_vector(1 downto 0);
+signal ex_mem_out : std_logic_vector(70 downto 0);
+signal m_ex_mem_out : std_logic_vector(2 downto 0);
+signal wb_ex_mem_out : std_logic_vector(1 downto 0);
 signal operation : std_logic_vector(3 downto 0);
 signal B : std_logic_vector(31 downto 0);
 signal branch_add : std_logic_vector(32 downto 0);
-signal pc_ex_mem_in, pc_ex_mem_out : std_logic_vector(32 downto 0);
+signal pc_ex_mem_out : std_logic_vector(32 downto 0);
+signal read_data_a, read_data_b : std_logic_vector(31 downto 0);
+
+signal alu_res : std_logic_vector(31 downto 0);
+signal alu_zero, alu_lt : std_logic;
+
 
 component memory
 	port(clock, memwrite, memread : in std_logic;
@@ -152,7 +158,7 @@ begin
 									 memwrite => M_mem(0),
 									 memread => M_mem(1),
 									 writedata => write_data_mem, 
-									 address => to_integer(unsigned(res_memaddr)),
+									 address => to_integer(unsigned(ex_mem_out(68 downto 37))),
 
 									 readdata => d_memout,
 									 waitrequest => d_waitrequest);
@@ -175,15 +181,15 @@ begin
 
 	rgs : registers port map (clk => clk,
 									 reg_write => RegWrite,
-									 addr_a => if_id_out(24 downto 20),
-									 addr_b => if_id_out(19 downto 15),
+									 addr_a => if_id_out(19 downto 15),
+									 addr_b => if_id_out(24 downto 20),
 									 addr_dest => WriteRegister,
 									 write_data => write_data,
-									 read_data_a => id_ex_in(104 downto 73),
-									 read_data_b => id_ex_in(72 downto 41)
+									 read_data_a => read_data_a,
+									 read_data_b => read_data_b
 									 );
 
-	alu_ctrl : alu_ctrl port map (-- To differentiate R instructions
+	alu_ctrl_unit : alu_ctrl port map (-- To differentiate R instructions
 									 funct3 => id_ex_out(7 downto 5),
 									 funct7 => "0" & id_ex_out(8) & "00000",
 									 ALUOp => ex_id_ex_out(2 downto 1),
@@ -191,18 +197,19 @@ begin
 									 op => operation
 									 );
 
-	alu : alu port map (A => id_ex_out(104 downto 73),
+	alu_unit : alu port map (A => id_ex_out(104 downto 73),
 									 B => B,
 									 op => operation,
 
-									 result => ex_mem_in(68 downto 37),
+									 result => alu_res,
 									 -- Branching only has beq, bne, blt, bge
-									 zero => ex_mem_in(69),
-									 lt => ex_mem_in(70)
+									 zero => alu_zero,
+									 lt => alu_lt
 									 );
 
-	pipeline_ready <= i_waitrequest and d_waitrequest;
+	pipeline_ready <= not (i_waitrequest or d_waitrequest); -- 0 means done, 
 	
+	-- PC combinational logic
 	pc4 <= pc + 4;
 	pc_sel <= branch_taken;
 	pc_branch <= to_integer(unsigned(branch_addr));
@@ -212,40 +219,36 @@ begin
 	
 	im_read <= pc_write and pipeline_ready and not reset;
 	
+	-- ID combinational logic
 	process(clk, reset)	
 	begin
 		if reset = '1' then
 			pc <= 0;
-			im_read <= '0';
-		elsif rising_edge(clk) then
+			if_id_out <= (others => '0');
+			id_ex_out <= (others => '0');
+			ex_mem_out <= (others => '0');
+			pc_if_id_out <= 0;
+			pc_id_ex_out <= 0;
+		elsif rising_edge(clk) and pipeline_ready = '1' then
 			----------
-			---------------------------------------------------------------------------------------
-			---------------------------------------- FETCH ----------------------------------------
-			---------------------------------------------------------------------------------------
 			-- PC changes on fetch or branch, when hazard_unit allows
 			if pc_write = '1' then
 				pc <= next_pc;
-				-- activate memread for 1 cycle
-				im_read <= '1';
-			else
-				-- resets memread to 0
-				im_read <= '0';
 			end if;
 			
+			---------------------------------------------------------------------------------------
+			---------------------------------------- FETCH ----------------------------------------
+			---------------------------------------------------------------------------------------
+			
 			-- IF/ID registers logic
-			-- no stall
 			if if_id_write = '1' then
-				if_id_in <= i_out;
 				-- branch
 				if if_id_flush = '1' then
-					if_id_in <= 0x0;
-				else
-					if_id_in <= (others => '0');
-					pc_if_id_in <= pc;
-				-- wait for i_waitrequest to become  1
-				elsif i_waitrequest = '1' and d_waitrequest = '1' then
-					if_id_in <= i_out;
-					pc_if_id_in <= pc;
+					if_id_out <= x"00000013"; -- NOP is addi x0, x0, 0
+					pc_if_id_out <= 0;
+				else -- normal assignment
+					if_id_out <= i_out;
+					pc_if_id_out <= pc; -- TO CHECK IF NEEDS OFFSET OR +4
 				end if;
 			end if;
 
@@ -254,139 +257,134 @@ begin
 			---------------------------------------------------------------------------------------
 			---------------------------------------- DECODE ----------------------------------------
 			---------------------------------------------------------------------------------------
-			if_id_out <= if_id_in;
-			pc_if_id_out <= pc_if_id_in;
 
 			-- wire addresses to registers
-			-- rs1[20 to 24], rs2[15 to 19], funct3[12 to 14], funct7[25 to 31]
+			-- rs2[20 to 24], rs1[15 to 19], funct3[12 to 14], funct7[25 to 31]
 			-- opcode[0 to 6] for branch, load, store, or operation
 
-			-- immediate value logic
-			if if_id_out(6 downto 0) = "0110011" then -- R-type
-				id_ex_in(40 downto 9) <= (others => '0');
 			
-			elsif if_id_out(6 downto 0) = "0010011" or if_id_out(6 downto 0) = "0000011"
+			-- immediate value logic (40 downto 9)
+			if if_id_out(6 downto 0) = "0110011" then -- R-type
+				id_ex_out(40 downto 9) <= (others => '0'); -- no immediate for R-type
+				id_ex_out(72 downto 41) <= read_data_b;
+				id_ex_out(104 downto 73) <= read_data_a;
+				
+			elsif if_id_out(6 downto 0) = "0010011" or if_id_out(6 downto 0) = "0000011" -- Immediate or load
 			or if_id_out(6 downto 0) = "1100111" or if_id_out(6 downto 0) = "1110011" then -- I-type
-				id_ex_in(40 downto 9) <= (19 downto 0 => if_id_out(31)) & if_id_out(31 downto 20);
+				id_ex_out(40 downto 9) <= (19 downto 0 => if_id_out(31)) & if_id_out(31 downto 20); -- Sign extend immediate
+				id_ex_out(72 downto 41) <= read_data_b; -- Will be replaced by immediate
+				id_ex_out(104 downto 73) <= read_data_a;
+				
 			
 			elsif if_id_out(6 downto 0) = "0100011" then -- S-type
-				id_ex_in(40 downto 9) <= (19 downto 0 => if_id_out(31)) & if_id_out(31 downto 25) & if_id_out(11 downto 7);
+				id_ex_out(40 downto 9) <= (19 downto 0 => if_id_out(31)) & if_id_out(31 downto 25) & if_id_out(11 downto 7);
+				id_ex_out(72 downto 41) <= read_data_b;
+				id_ex_out(104 downto 73) <= read_data_a;
 			
 			elsif if_id_out(6 downto 0) = "1100011" then -- B-type
-				id_ex_in(40 downto 9) <= (18 downto 0 => if_id_out(31)) & if_id_out(31) & if_id_out(7) & if_id_out(30 downto 25) & if_id_out(11 downto 8) & "0";
-
+				id_ex_out(40 downto 9) <= (18 downto 0 => if_id_out(31)) & if_id_out(31) & if_id_out(7) & if_id_out(30 downto 25) & if_id_out(11 downto 8) & "0";
+				id_ex_out(72 downto 41) <= read_data_b;
+				id_ex_out(104 downto 73) <= read_data_a;
+			
+			elsif if_id_out(6 downto 0) = "0110111" or if_id_out(6 downto 0) = "0010111" then -- U-type
+				id_ex_out(40 downto 9) <= if_id_out(31 downto 12) & (11 downto 0 => '0');
+				
 			elsif if_id_out(6 downto 0) = "1101111" then -- J-type
-				id_ex_in(40 downto 9) <= (10 downto 0 => if_id_out(31)) & if_id_out(31) & if_id_out(19 downto 12) & if_id_out(20) & if_id_out(30 downto 21) & "0";
+				id_ex_out(40 downto 9) <= (10 downto 0 => if_id_out(31)) & if_id_out(31) & if_id_out(19 downto 12) & if_id_out(20) & if_id_out(30 downto 21) & "0";
 
-			else -- U-type
-				id_ex_in(40 downto 9) <= if_id_out(31 downto 12) & (11 downto 0 => '0');
 			end if;
 
 
-			-- ALU control
-			id_ex_in(8 downto 5) <= if_id_out(30) & if_id_out(14 downto 12);
+			-- ALU control 8-5 is funct3, 30 for funct7 bit
+			id_ex_out(8 downto 5) <= if_id_out(30) & if_id_out(14 downto 12);
 
 
-			-- writeback register
-			id_ex_in(4 downto 0) <= if_id_out(11 downto 7);
+			-- writeback register 4 downto 0
+			id_ex_out(4 downto 0) <= if_id_out(11 downto 7);
 
 
 			-- control module
 			-- if not R-type select imm
 			if if_id_out(6 downto 0) /= "0110011" then
-				ex_id_ex_in(0) <= '1';
+				ex_id_ex_out(0) <= '1'; --ALUSrc
 			else
-				ex_id_ex_in(0) <= '0';
+				ex_id_ex_out(0) <= '0'; -- Use read_data_2 if is R-type
 			end if;
 
 			case if_id_out(6 downto 0) is
 				when "0000011" => -- load
-					ex_id_ex_in(2 downto 1) <= "00";
-					m_id_ex_in <= "010";
-					wb_id_ex_in <= "11";
+					ex_id_ex_out(2 downto 1) <= "00";
+					m_id_ex_out <= "010"; -- branch & read & write
+					wb_id_ex_out <= "11"; -- regwrite & memtoreg
 				
 				when "0100011" => -- store
-					ex_id_ex_in(2 downto 1) <= "00";
-					m_id_ex_in <= "001";
-					wb_id_ex_in <= "00";
+					ex_id_ex_out(2 downto 1) <= "00";
+					m_id_ex_out <= "001";
+					wb_id_ex_out <= "00";
 				
 				when "1100011" => -- branch
-					ex_id_ex_in(2 downto 1) <= "01";
-					m_id_ex_in <= "100";
-					wb_id_ex_in <= "00";
+					ex_id_ex_out(2 downto 1) <= "01";
+					m_id_ex_out <= "100";
+					wb_id_ex_out <= "00";
 
 				when "0010011" | "1100111" | "1110011" => -- R and I style instructions
-					ex_id_ex_in(2 downto 1) <= "10";
-					m_id_ex_in <= "000";
-					wb_id_ex_in <= "10";
+					ex_id_ex_out(2 downto 1) <= "10";
+					m_id_ex_out <= "000";
+					wb_id_ex_out <= "10";
 
 				when others =>
-					ex_id_ex_in(2 downto 1) <= "11";
-					m_id_ex_in <= "000";
-					wb_id_ex_in <= "00";
+					ex_id_ex_out(2 downto 1) <= "11";
+					m_id_ex_out <= "000";
+					wb_id_ex_out <= "00";
 			end case;
 
-			pc_id_ex_in <= pc_if_id_out;
+			pc_id_ex_out <= pc_if_id_out;
 
 			if id_ex_flush = '1' then
-				id_ex_in <= (others => '0');
+				id_ex_out <= (others => '0');
 			end if;
 			
 			---------------------------------------------------------------------------------------
 			---------------------------------------- EXECUTE ----------------------------------------
 			---------------------------------------------------------------------------------------
 			-- pass signals to next stage
-			m_id_ex_out <= m_id_ex_in;
-			wb_id_ex_out <= wb_id_ex_in;
-			ex_mem_in(4 downto 0) <= id_ex_out(4 downto 0);
-			ex_mem_in(36 downto 5) <= id_ex_out(40 downto 9);
+			ex_mem_out(4 downto 0) <= id_ex_out(4 downto 0);
+			ex_mem_out(36 downto 5) <= id_ex_out(72 downto 41);
 
-			m_ex_mem_in <= m_id_ex_out;
-			WB_mem <= wb_id_ex_out;
-
-			-- alu second input
-			ex_id_ex_out <= ex_id_ex_in;
-			id_ex_out <= id_ex_in;
-
-			if ex_id_ex_out(0) = '1' then
-				B <= id_ex_out(40 downto 9); -- immediate value
-			else
-				B <= id_ex_out(72 downto 41); -- register value
-			end if;
-
-			-- calculate branch address
-			pc_id_ex_out <= pc_id_ex_in;
-			branch_add <= std_logic_vector(
-    				to_unsigned(pc_id_ex_out, 33) + unsigned(id_ex_out(40 downto 9))
+			M_mem <= m_id_ex_out;
+			WB_mem <= wb_id_ex_out; -- wb_ex_mem_out
+			
+			-- Connect port map wires
+			ex_mem_out(68 downto 37) <= alu_res;
+			ex_mem_out(69) <= alu_zero;
+			ex_mem_out(70) <= alu_lt;
+			
+			-- calculate branch address (TO BE VERIFIED AGAIN)
+			branch_addr <= std_logic_vector(
+    				to_signed(pc_id_ex_out, 32) + signed(id_ex_out(40 downto 9)) -- Signed to go either direction
 			);
-			
-			-- send branch address to next stage
-			pc_ex_mem_in <= branch_add;
-			
-			------------------------------------------------------------------------
-													--MEM stage
-			------------------------------------------------------------------------
-			
-			res_memaddr <= ex_mem_in(68 downto 37)
-			WB_wb <= WB_mem;
-			mem_data_wb <= d_memout;
-			alu_res_wb <= res_memaddr;
-			rd_wb <= rd_mem;
-			
-		end if;
-			
-			-- MEM stage
-			ex_mem_out <= ex_mem_in;
-			WB_wb <= WB_mem;
-			mem_data_wb <= d_memout;
-			alu_res_wb <= res_memaddr;
-			rd_wb <= rd_mem;
-
-		end if;
 		
+			
+			if (ex_mem_flush = '1') then
+				ex_mem_out <= (others => '0');
+			end if;
+			------------------------------------------------------------------------
+													--MEM stage to WB
+			------------------------------------------------------------------------
+			
+			WB_wb <= WB_mem; -- WriteBack register
+			mem_data_wb <= d_memout;
+			alu_res_wb <= ex_mem_out(68 downto 37); --Fed also to D-mem in port map
+			rd_wb <= ex_mem_out(4 downto 0); --
+			
+		end if;
 	end process;
 	
-	res_memaddr <= ex_mem_out(68 downto 37);
+	-- EX stage combinational
+	B <= id_ex_out(40 downto 9) when ex_id_ex_out(0) = '1' else id_ex_out(72 downto 41); -- imm or register value
+	func3_mem <= id_ex_out(7 downto 5); -- Needed to branch conditionals
+	flags(0) <= ex_mem_out(69); --zero
+	flags(1) <= ex_mem_out(70); --lt
 	
 	-- Mem stage combinational
 	branch_taken <= '1' when (M_mem(2) = '1' and (
@@ -400,7 +398,7 @@ begin
 	RegWrite <= WB_wb(1);
 	MemToReg <= WB_wb(0);
 	WriteRegister <= rd_wb;
-	with memToReg select
+	with MemToReg select
 		write_data <= mem_data_wb when '1',
 						  alu_res_wb when others;
 	
