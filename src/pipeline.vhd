@@ -34,6 +34,15 @@ signal ex_id_ex_in, ex_id_ex_out : std_logic_vector(2 downto 0);
 signal m_id_ex_in, m_id_ex_out : std_logic_vector(3 downto 0);
 signal wb_id_ex_in, wb_id_ex_out : std_logic_vector(1 downto 0);
 
+-- EX/MEM signals
+signal ex_mem_in, ex_mem_out : std_logic_vector(70 downto 0);
+signal m_ex_mem_in, m_ex_mem_out : std_logic_vector(3 downto 0);
+signal wb_ex_mem_in, wb_ex_mem_out : std_logic_vector(1 downto 0);
+signal operation : std_logic_vector(3 downto 0);
+signal B : std_logic_vector(31 downto 0);
+signal branch_add : std_logic_vector(32 downto 0);
+signal pc_ex_mem_in, pc_ex_mem_out : std_logic_vector(32 downto 0);
+
 component memory
 	port(clock, memwrite, memread : in std_logic;
 			writedata: in std_logic_vector(31 downto 0);
@@ -116,14 +125,15 @@ begin
 									 waitrequest => d_waitrequest);
 
 	hazard : hazard_unit port map (clk => clk,
-									 id_rs1 => ,
-									 id_rs2 => ,
-									 ex_rd => ,
+									 id_rs1 => if_id_out(24 downto 20),
+									 id_rs2 => if_id_out(19 downto 15),
+									 ex_rd => if_id_out(11 downto 7),
 									 ex_reg_write => ,
 									 mem_rd => ,
 									 mem_reg_write => ,
 									 mem_waitrequest => ,
 									 branch_taken => ,
+									 
 									 pc_write => ,
 									 if_id_write => ,
 									 id_ex_flush => ,
@@ -139,6 +149,24 @@ begin
 									 write_data => MEM_WB_DATA,
 									 read_data_a => id_ex_in(104 downto 73),
 									 read_data_b => id_ex_in(72 downto 41),
+									 );
+
+	alu_ctrl : alu_ctrl port map (-- To differentiate R instructions
+									 funct3 => id_ex_out(7 downto 5),
+									 funct7 : => "0" && id_ex_out(8) && "00000",
+									 ALUOp : => ex_id_ex_out(2 downto 1),
+
+									 op => operation,
+									 ;)
+
+	alu : alu port map (A => id_ex_out(104 downto 73),
+									 B: B;
+									 op => operation,
+
+									 result : ex_mem_in(68 downto 37);
+									 -- Branching only has beq, bne, blt, bge
+									 zero : ex_mem_in(69),
+									 lt : ex_mem_in(70),
 									 );
 
 	
@@ -226,30 +254,60 @@ begin
 			case if_id_out(6 downto 0) is
 				when "0000011" => -- load
 					ex_id_ex_in(2 downto 1) <= 00;
+					m_id_ex_in <= "010";
+					wb_id_ex_in <= "11";
 				
 				when "0100011" => -- store
 					ex_id_ex_in(2 downto 1) <= 00;
+					m_id_ex_in <= "001";
+					wb_id_ex_in <= "00";
 				
 				when "1100011" => -- branch
 					ex_id_ex_in(2 downto 1) <= 01;
+					m_id_ex_in <= "100";
+					wb_id_ex_in <= "00";
 
-				when "0010011" or "0000011" or "1100111" or "1110011" => -- R and I style instructions
+				when "0010011" or "1100111" or "1110011" => -- R and I style instructions
 					ex_id_ex_in(2 downto 1) <= 10;
+					m_id_ex_in <= "000";
+					wb_id_ex_in <= "10";
 
 				when others =>
 					ex_id_ex_in(2 downto 1) <= 11;
+					m_id_ex_in <= "000";
+					wb_id_ex_in <= "00";
 			end case;
-			
-			-- ******TODO***** m and wb control module
-			m_id_ex_in <= ;
-			wb_id_ex_in <= ;
 
 			pc_id_ex_in <= pc_if_id_out
 			
 			---------------------------------------------------------------------------------------
 			---------------------------------------- EXECUTE ----------------------------------------
 			---------------------------------------------------------------------------------------
-			#
+			-- pass signals to next stage
+			m_id_ex_out <= m_id_ex_in;
+			wb_id_ex_out <= wb_id_ex_in;
+			ex_mem_in(4 downto 0) <= m_id_ex_out(4 downto 0)
+			ex_mem_in(36 downto 5) <= m_id_ex_out(40 downto 9)
+
+			m_ex_mem_in <= m_id_ex_out;
+			wb_ex_mem_in <= wb_id_ex_out
+
+			-- alu second input
+			ex_id_ex_out <= ex_id_ex_in;
+			id_ex_out <= id_ex_in;
+
+			if ex_id_ex_out(0) = '1' then
+				B <= id_ex_out(40 downto 9); -- immediate value
+			else
+				B <= id_ex_out(72 downto 41); -- register value
+			end if;
+
+			-- calculate branch address
+			pc_id_ex_out <= pc_id_ex_in;
+			branch_add <= pc_id_ex_out + id_ex_out(40 downto 9);
+			
+			-- send branch address to next stage
+			pc_ex_mem_in <= branch_add;
 			
 		end if;
 	end process;
