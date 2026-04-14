@@ -164,13 +164,13 @@ begin
 									 );
 
 	rgs : registers port map (clk => clk,
-									 reg_write => MEM_WB_WRITE,
+									 reg_write => RegWrite,
 									 addr_a => if_id_out(24 downto 20),
 									 addr_b => if_id_out(19 downto 15),
-									 addr_dest => MEM_WB_REG,
-									 write_data => MEM_WB_DATA,
+									 addr_dest => WriteRegister,
+									 write_data => write_data,
 									 read_data_a => id_ex_in(104 downto 73),
-									 read_data_b => id_ex_in(72 downto 41),
+									 read_data_b => id_ex_in(72 downto 41)
 									 );
 
 	alu_ctrl : alu_ctrl port map (-- To differentiate R instructions
