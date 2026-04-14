@@ -24,20 +24,14 @@ END memory;
 ARCHITECTURE rtl OF memory IS
 	-- Adjusted to map byte addresses to array indices
 	TYPE MEM IS ARRAY((ram_size / 4) -1 downto 0) OF STD_LOGIC_VECTOR(31 DOWNTO 0);
-	SIGNAL ram_block: MEM;
+	SIGNAL ram_block: MEM := (others => (others =>'0')); -- 0 init
 	SIGNAL read_address_reg: INTEGER RANGE 0 to ram_size-1;
-	SIGNAL write_waitreq_reg: STD_LOGIC := '1';
-	SIGNAL read_waitreq_reg: STD_LOGIC := '1';
+	SIGNAL write_waitreq_reg: STD_LOGIC := '0';
+	SIGNAL read_waitreq_reg: STD_LOGIC := '0';
 BEGIN
 	--This is the main section of the SRAM model
 	mem_process: PROCESS (clock)
 	BEGIN
-		--This is a cheap trick to initialize the SRAM in simulation
-		IF(now < 1 ps)THEN
-			For i in 0 to (ram_size / 4) -1 LOOP
-				ram_block(i) <= std_logic_vector(to_unsigned(i*4,32));
-			END LOOP;
-		end if;
 
 		--This is the actual synthesizable SRAM block
 		IF (clock'event AND clock = '1') THEN
@@ -52,21 +46,18 @@ BEGIN
 
 	--The waitrequest signal is used to vary response time in simulation
 	--Read and write should never happen at the same time.
-	waitreq_w_proc: PROCESS (memwrite)
-	BEGIN
-		IF(memwrite'event AND memwrite = '1')THEN
-			write_waitreq_reg <= '0' after mem_delay, '1' after mem_delay + clock_period;
-
-		END IF;
-	END PROCESS;
-
-	waitreq_r_proc: PROCESS (memread)
-	BEGIN
-		IF(memread'event AND memread = '1')THEN
-			read_waitreq_reg <= '0' after mem_delay, '1' after mem_delay + clock_period;
-		END IF;
-	END PROCESS;
-	waitrequest <= write_waitreq_reg and read_waitreq_reg;
+	process (memread, memwrite)
+	begin
+		 if (memread = '1' or memwrite = '1') then
+			  -- As soon as a request is made, tell the pipeline to STALL
+			  waitrequest <= '1';
+			  -- After the 10ns delay, tell the pipeline the data is READY
+			  waitrequest <= '0' after mem_delay;
+		 else
+			  -- If no one is asking for memory, it is ready by default
+			  waitrequest <= '0';
+		 end if;
+	end process;
 
 
 END rtl;

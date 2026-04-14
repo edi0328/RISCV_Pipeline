@@ -68,7 +68,7 @@ signal wb_id_ex_out : std_logic_vector(1 downto 0);
 signal funct7_id_ex_out : std_logic_vector(6 downto 0);
 
 -- EX/MEM signals
-signal ex_mem_out : std_logic_vector(70 downto 0);
+signal ex_mem_out : std_logic_vector(80 downto 0);
 signal m_ex_mem_out : std_logic_vector(2 downto 0);
 signal wb_ex_mem_out : std_logic_vector(1 downto 0);
 signal operation : std_logic_vector(3 downto 0);
@@ -101,6 +101,7 @@ component alu_ctrl
 	port(funct3 : in std_logic_vector(2 downto 0);
 		funct7 : in std_logic_vector(6 downto 0);
 		ALUOp : in std_logic_vector(1 downto 0);
+		is_rtype : in std_logic;
 		op : out std_logic_vector(3 downto 0));
 end component;
 
@@ -115,6 +116,8 @@ component hazard_unit
 		ex_reg_write : in  std_logic; -- From ID/EX
 		mem_rd : in  std_logic_vector(4 downto 0);
 		mem_reg_write : in  std_logic; -- From EX/MEM
+		wb_rd : in std_logic_vector(4 downto 0); -- WB
+		wb_reg_write : in std_logic;
 
 		-- Memory status and Branch results
 		mem_waitrequest : in  std_logic; -- From memory.vhd
@@ -171,6 +174,8 @@ begin
 									 ex_reg_write => wb_id_ex_out(1),
 									 mem_rd => ex_mem_out(4 downto 0),
 									 mem_reg_write => WB_mem(1),
+									 wb_rd => rd_wb,
+									 wb_reg_write => WB_wb(1),
 									 mem_waitrequest => mem_waitrequest_s,
 									 branch_taken => branch_taken,
 
@@ -195,7 +200,7 @@ begin
 									 funct3 => id_ex_out(7 downto 5),
 									 funct7 => funct7_id_ex_out,
 									 ALUOp => ex_id_ex_out(2 downto 1),
-
+									 is_rtype => id_ex_out(110), -- bit 5 of opcode
 									 op => operation
 									 );
 
@@ -209,7 +214,7 @@ begin
 									 lt => alu_lt
 									 );
 
-	pipeline_ready <= not (i_waitrequest or d_waitrequest); -- 0 means done, 
+	pipeline_ready <= '1' when (i_waitrequest = '0' and d_waitrequest = '0') else '0';
 	mem_waitrequest_s <= i_waitrequest or d_waitrequest;
 	-- PC combinational logic
 	pc4 <= pc + 4;
@@ -223,6 +228,7 @@ begin
 	
 	-- ID combinational logic
 	process(clk, reset)	
+		variable fetch_pc_v : integer;
 	begin
 		if reset = '1' then
 			pc <= 0;
@@ -232,6 +238,7 @@ begin
 			pc_if_id_out <= 0;
 			pc_id_ex_out <= 0;
 		elsif rising_edge(clk) and pipeline_ready = '1' then
+			fetch_pc_v := pc;
 			----------
 			-- PC changes on fetch or branch, when hazard_unit allows
 			if pc_write = '1' then
@@ -251,6 +258,11 @@ begin
 				else -- normal assignment
 					if_id_out <= i_out;
 					pc_if_id_out <= pc; -- CHECK IF NEEDS OFFSET OR +4, LIKELY OK
+					
+					report "IFID WRITE: PC=" & integer'image(fetch_pc_v) &
+                       " instr_opcode=" & integer'image(to_integer(unsigned(i_out(6 downto 0)))) &
+                       " funct3=" & integer'image(to_integer(unsigned(i_out(14 downto 12)))) &
+                       " funct7=" & integer'image(to_integer(unsigned(i_out(31 downto 25))));
 				end if;
 			end if;
 
@@ -267,6 +279,10 @@ begin
 			if id_ex_flush = '1' then
 				id_ex_out <= (others => '0');
 				pc_id_ex_out <= 0;
+				ex_id_ex_out <= (others => '0');
+				m_id_ex_out <= (others => '0');
+				wb_id_ex_out <= (others => '0');
+				funct7_id_ex_out <= (others => '0');
 			else
 				-- immediate value logic (40 downto 9)
 				if if_id_out(6 downto 0) = "0110011" then -- R-type
@@ -310,12 +326,16 @@ begin
 				id_ex_out(111 downto 105) <= if_id_out(6 downto 0); -- Pass the opcode to EX for AUIPC
 
 				-- control module
-				-- if not R-type select imm
-				if if_id_out(6 downto 0) /= "0110011" then
-					ex_id_ex_out(0) <= '1'; --ALUSrc
-				else
-					ex_id_ex_out(0) <= '0'; -- Use read_data_2 if is R-type
-				end if;
+				case if_id_out(6 downto 0) is
+					when "0110011" => -- R-type
+						ex_id_ex_out(0) <= '0';
+
+					when "1100011" => -- branch
+						ex_id_ex_out(0) <= '0'; -- compare rs1 and rs2
+
+					when others =>
+						ex_id_ex_out(0) <= '1'; -- loads, stores, I-type, jalr, lui, auipc, etc.
+				end case;
 
 				case if_id_out(6 downto 0) is
 					when "0000011" => -- load
@@ -384,7 +404,8 @@ begin
 				ex_mem_out(68 downto 37) <= alu_res;
 				ex_mem_out(69) <= alu_zero;
 				ex_mem_out(70) <= alu_lt;
-				
+				ex_mem_out(77 downto 71) <= id_ex_out(111 downto 105); -- opcode
+				ex_mem_out(80 downto 78) <= id_ex_out(7 downto 5); -- funct3
 				-- calculate branch address (TO BE VERIFIED AGAIN)
 				if id_ex_out(111 downto 105) = "1100111" then -- JALR
 					branch_addr <= std_logic_vector(signed(id_ex_out(104 downto 73)) + signed(id_ex_out(40 downto 9))); -- rs1 + imm
@@ -409,7 +430,7 @@ begin
 	B <= std_logic_vector(to_unsigned(4, 32)) when id_ex_out(111 downto 105) = "1101111" or id_ex_out(111 downto 105) = "1100111" else --JALR, JAL
 																	id_ex_out(40 downto 9) when ex_id_ex_out(0) = '1' else
 																	id_ex_out(72 downto 41); -- imm or register value
-	func3_mem <= id_ex_out(7 downto 5); -- Needed to branch conditionals
+	func3_mem <= ex_mem_out(80 downto 78); -- Needed to branch conditionals
 	flags(0) <= ex_mem_out(69); --zero
 	flags(1) <= ex_mem_out(70); --lt
 	
@@ -425,10 +446,11 @@ begin
                     (func3_mem = "001" and flags(0) = '0') or -- bne: branch if NOT equal
                     (func3_mem = "100" and flags(1) = '1') or -- blt: branch if less than
                     (func3_mem = "101" and flags(1) = '0') or -- bge: branch if NOT less than (greater or equal)
-						  id_ex_out(111 downto 105) = "1101111" or -- JAL: Always take
-                    id_ex_out(111 downto 105) = "1100111" -- JALR: Always take
+						  ex_mem_out(77 downto 71) = "1101111" or -- JAL: Always take
+                    ex_mem_out(77 downto 71) = "1100111" -- JALR: Always take
                 )) else '0';
-	d_address <= to_integer(unsigned(ex_mem_out(68 downto 37)));
+	-- d_address <= to_integer(unsigned(ex_mem_out(68 downto 37)));
+	write_data_mem <= ex_mem_out(36 downto 5);
 	-- WB stage combinational
 	RegWrite <= WB_wb(1);
 	MemToReg <= WB_wb(0);
@@ -436,5 +458,23 @@ begin
 	with MemToReg select
 		write_data <= mem_data_wb when '1',
 						  alu_res_wb when others;
-	
+process(ex_mem_out, M_mem, branch_taken, pc, read_data_a, read_data_b, if_id_out)
+    variable addr_i : integer;
+begin
+    if (M_mem(1) = '1' or M_mem(0) = '1') then
+        addr_i := to_integer(signed(ex_mem_out(68 downto 37)));
+
+        assert addr_i >= 0 and addr_i < ram_size
+            report "PC=" & integer'image(pc) &
+                   " opcode_MEM=" & integer'image(to_integer(unsigned(ex_mem_out(77 downto 71)))) &
+                   " funct3_MEM=" & integer'image(to_integer(unsigned(ex_mem_out(80 downto 78)))) &
+                   " alu_res_signed=" & integer'image(to_integer(signed(ex_mem_out(68 downto 37)))) &
+                   " branch_taken=" & std_logic'image(branch_taken)
+            severity failure;
+
+        d_address <= to_integer(unsigned(ex_mem_out(68 downto 37)));
+    else
+        d_address <= 0;
+    end if;
+end process;
 end top;

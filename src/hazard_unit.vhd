@@ -13,6 +13,8 @@ entity hazard_unit is
 		ex_reg_write : in  std_logic; -- From ID/EX
 		mem_rd : in  std_logic_vector(4 downto 0);
 		mem_reg_write : in  std_logic; -- From EX/MEM
+		wb_rd : in std_logic_vector(4 downto 0);
+		wb_reg_write : in  std_logic;
 
 		-- Memory status and Branch results
 		mem_waitrequest : in  std_logic; -- From memory.vhd
@@ -32,6 +34,7 @@ architecture rtl of hazard_unit is
 	signal ex_hazard   : std_logic;
 	signal mem_hazard  : std_logic;
 	signal data_hazard : std_logic;
+	signal wb_hazard : std_logic;
 begin
 
 	-- Hazard with instruction currently in EX stage
@@ -50,7 +53,13 @@ begin
 	else
 		'0';
 
-	data_hazard <= ex_hazard or mem_hazard;
+	wb_hazard <= '1' when
+		(wb_reg_write = '1') and
+		(wb_rd /= "00000") and
+		((id_rs1 = wb_rd) or (id_rs2 = wb_rd))
+	else
+		'0';
+	data_hazard <= ex_hazard or mem_hazard or wb_hazard;
 
 	process(id_rs1, id_rs2, ex_rd, ex_reg_write, mem_rd, mem_reg_write, mem_waitrequest, branch_taken, ex_hazard, mem_hazard, data_hazard)
 	begin

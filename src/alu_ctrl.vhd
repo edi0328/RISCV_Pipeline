@@ -7,7 +7,7 @@ entity alu_ctrl is
 		-- To differentiate R instructions
 		funct3 : in std_logic_vector(2 downto 0);
 		funct7 : in std_logic_vector(6 downto 0);
-
+		is_rtype : in std_logic;
 		ALUOp : in std_logic_vector(1 downto 0);
 		op : out std_logic_vector(3 downto 0)
 		-- Feel free to add output ports for debugging below
@@ -30,7 +30,7 @@ end alu_ctrl;
 
 architecture behavioral of alu_ctrl is
 begin
-	process(ALUOp, funct3, funct7)
+	process(ALUOp, funct3, funct7, is_rtype)
 	begin
 		case ALUOp is
 
@@ -46,7 +46,7 @@ begin
 			-- R-type and I-type ALU instructions
 			when "10" =>
 				-- RV32M multiply (funct7 = 0000001, only mul rd=rs1*rs2[31:0])
-				if funct7 = "0000001" then
+				if is_rtype = '1' and funct7 = "0000001" then
 					op <= "1010"; -- MUL
 
 				elsif funct7 = "0100000" then
